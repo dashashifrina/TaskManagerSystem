@@ -19,14 +19,14 @@ from api.mixins import UserQuerysetMixin
 from api.utils import error_response, status_response
 from projects.permissions import IsProjectMinRole
 
-from .models import Task, Category
-from .permissions import IsOwner, ProjectTaskPermission
-from .services import TaskService, CategoryService
+from .models import Task, Category, TaskComment
+from .permissions import IsOwner, ProjectTaskPermission, ProjectCommentPermission
 from .serializers import (
-    TaskSerializer, CategorySerializer,
+    TaskSerializer, CategorySerializer, TaskCommentSerializer,
     ToggleCompletedResponseSerializer, ToggleFavoriteResponseSerializer,
-    MoveTaskResponseSerializer, MoveTaskSerializer, 
+    MoveTaskResponseSerializer, MoveTaskSerializer,
 )
+from .services import TaskService, CategoryService, CommentService
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -230,3 +230,107 @@ class CategoryViewSet(UserQuerysetMixin, viewsets.ModelViewSet):
             tasks, many=True, context={"request": request}
         )
         return Response(serializer.data)
+
+
+class TaskCommentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for task comments. Nested under TaskViewSet.
+
+    Routes:
+    - /tasks/{task_pk}/comments/
+    - /projects/{project_pk}/tasks/{task_pk}/comments/
+    """
+
+    serializer_class = TaskCommentSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
+
+    def _get_task(self):
+        task_pk = self.kwargs.get("task_pk")
+        return get_object_or_404(Task, pk=task_pk)
+
+    def _is_project_task(self):
+        return self.kwargs.get("project_pk") is not None
+
+    def get_queryset(self):
+        task = self._get_task()
+
+        if not self._is_project_task():
+            # Personal task: only the task owner can see comments
+            if task.user != self.request.user:
+                raise PermissionDenied()
+        else:
+            # Project task: verify this task belongs to the given project
+            project_pk = self.kwargs.get("project_pk")
+            if task.project_id is None or str(task.project_id) != str(project_pk):
+                raise NotFound("Task not found in this project")
+            # Viewer+ check: delegate to IsProjectMinRole
+            if not IsProjectMinRole("Viewer").has_object_permission(self.request, self, task):
+                raise PermissionDenied()
+
+        return TaskComment.objects.filter(task=task).select_related("author")
+
+    def get_permissions(self):
+        if not self._is_project_task():
+            return [IsAuthenticated(), IsOwner()]
+        return [IsAuthenticated(), ProjectCommentPermission()]
+
+    def get_object(self):
+        task = self._get_task()
+        pk = self.kwargs.get(self.lookup_field)
+        comment = get_object_or_404(
+            TaskComment.objects.select_related("author", "task", "task__project"),
+            pk=pk,
+            task=task,
+        )
+        try:
+            self.check_object_permissions(self.request, comment)
+        except PermissionDenied:
+            if self.request.method in SAFE_METHODS:
+                raise NotFound()
+            raise
+        return comment
+
+    def perform_create(self, serializer):
+        # Handled in create() directly
+        pass
+
+    def create(self, request, *args, **kwargs):
+        task = self._get_task()
+
+        # Personal task guard: only owner can comment
+        if not self._is_project_task() and task.user != request.user:
+            raise PermissionDenied()
+
+        # Project task Member+ guard
+        if self._is_project_task():
+            if not IsProjectMinRole("Member").has_object_permission(request, self, task):
+                raise PermissionDenied()
+
+        serializer = TaskCommentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        comment = CommentService.create_comment(
+            task=task,
+            author=request.user,
+            text=serializer.validated_data["text"],
+        )
+
+        out_serializer = TaskCommentSerializer(comment, context={"request": request})
+        return Response(out_serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        comment = self.get_object()
+
+        serializer = TaskCommentSerializer(comment, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+
+        updated = CommentService.update_comment(comment, serializer.validated_data["text"])
+        out = TaskCommentSerializer(updated, context={"request": request})
+        return Response(out.data)
+
+    def destroy(self, request, *args, **kwargs):
+        comment = self.get_object()
+        CommentService.delete_comment(comment)
+        return Response(status=status.HTTP_204_NO_CONTENT)

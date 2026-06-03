@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Task, Category
+from .models import Task, Category, TaskComment
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -80,3 +80,19 @@ class CategorySerializer(serializers.ModelSerializer):
 
     def get_tasks_count(self, obj):
         return obj.tasks.count()
+
+
+class TaskCommentSerializer(serializers.ModelSerializer):
+    author_name: serializers.StringRelatedField = serializers.StringRelatedField(
+        source="author.username", read_only=True
+    )
+
+    class Meta:
+        model = TaskComment
+        fields = ["id", "task", "author", "author_name", "text", "created_at", "updated_at"]
+        read_only_fields = ["id", "task", "author", "author_name", "created_at", "updated_at"]
+
+    def validate_text(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Comment text cannot be empty")
+        return value

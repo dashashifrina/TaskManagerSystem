@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework_nested import routers
 
-from tasks.views import TaskViewSet
+from tasks.views import TaskViewSet, TaskCommentViewSet
 
 from .views import (
     ProjectShareLinkViewSet, ProjectViewSet, RoleViewSet, 
@@ -20,8 +20,13 @@ projects_router = routers.NestedDefaultRouter(router, r"", lookup="project")
 projects_router.register(r"tasks", TaskViewSet, basename="project-tasks")
 projects_router.register(r"share_links", ProjectShareLinkViewSet, basename="project-share-links")
 
+# Nested router for comments under project tasks
+project_tasks_router = routers.NestedDefaultRouter(projects_router, r"tasks", lookup="task")
+project_tasks_router.register(r"comments", TaskCommentViewSet, basename="project-task-comments")
+
 urlpatterns = [
     path("", include(router.urls)),
     path("", include(projects_router.urls)),
+    path("", include(project_tasks_router.urls)),
     path("join/<uuid:token>/", join_project, name="join-project"),
 ]
