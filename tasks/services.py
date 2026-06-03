@@ -91,3 +91,57 @@ class CategoryService:
         Return all tasks associated with a given category
         """
         return category.tasks.all()
+
+
+class CommentService:
+    """
+    Service for task comment operations.
+    """
+
+    @staticmethod
+    def create_comment(task, author, text: str):
+        """
+        Create a new comment on a task.
+
+        Args:
+            task: The Task instance to comment on.
+            author: The User instance creating the comment.
+            text: The comment text.
+
+        Returns:
+            TaskComment: The newly created comment.
+        """
+        from tasks.models import TaskComment
+
+        comment = TaskComment.objects.create(task=task, author=author, text=text)
+        logger.info(f"Comment {comment.id} created on task {task.id} by user {author.id}")
+        return comment
+
+    @staticmethod
+    def update_comment(comment, text: str):
+        """
+        Update the text of an existing comment.
+
+        Args:
+            comment: The TaskComment instance to update.
+            text: The new text.
+
+        Returns:
+            TaskComment: The updated comment.
+        """
+        comment.text = text
+        comment.save(update_fields=["text", "updated_at"])
+        logger.info(f"Comment {comment.id} updated")
+        return comment
+
+    @staticmethod
+    def delete_comment(comment):
+        """
+        Delete a comment.
+
+        Args:
+            comment: The TaskComment instance to delete.
+        """
+        comment_id = comment.id
+        comment.delete()
+        logger.info(f"Comment {comment_id} deleted")

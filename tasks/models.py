@@ -110,3 +110,33 @@ def update_user_last_task_completed(sender, instance, created, **kwargs):
     if instance.completed and instance.user:
         instance.user.last_task_completed_at = timezone.now()
         instance.user.save(update_fields=["last_task_completed_at"])
+
+
+class TaskComment(models.Model):
+    """
+    A comment on a task, authored by a user.
+    - Personal task comments are visible only to the task owner.
+    - Project task comments follow the project role hierarchy.
+    """
+
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name="comments",
+        db_index=True,
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="task_comments",
+    )
+    text = models.TextField(validators=[TEXT_FIELD_VALIDATOR])
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["task"])]
+
+    def __str__(self):
+        return f"Comment by {self.author.username} on task {self.task_id}"
