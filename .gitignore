@@ -34,3 +34,6 @@ venv/
 run_venv.bat
 .coverage
 /features/
+# Autobuild install artifacts
+.obvious-install/
+.env
